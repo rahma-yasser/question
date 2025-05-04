@@ -58,7 +58,7 @@ class GenerateQuestionsRequest(BaseModel):
     track_id: Optional[str] = Field(None, description="Track ID (e.g., '1' for Flutter, '2' for Machine Learning)")
     topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy'])")
     difficulty: str = Field("beginner", description="Difficulty level: beginner, intermediate, or advanced")
-    num_questions: int = Field(10, ge=1, le=100, description="Number of questions (1 to 100)")
+    num_questions: int = Field(10, ge=1, le=10, description="Number of questions (1 to 10)")
 
 class QuestionGenerator:
     """A system to generate questions and answers using Google Gemini API."""
@@ -67,7 +67,7 @@ class QuestionGenerator:
         """Initialize the question generator."""
         self.google_api_key = None
         self.question_model = None
-        self.rate_limit_delay = 30  # Delay in seconds for free-tier (2 req/min)
+        self.rate_limit_delay = 2  # Delay in seconds for free-tier (2 req/min)
 
     def setup_environment(self) -> None:
         """Load environment variables and configure Google API."""
@@ -86,7 +86,7 @@ class QuestionGenerator:
             logger.error(f"Failed to initialize model: {e}")
             raise
 
-    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=30, max=60))
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def generate_content(self, prompt: str, response_type: str = "text/plain") -> str:
         """Generate content using the Gemini API with retry on rate limits."""
         try:
@@ -248,7 +248,7 @@ async def generate_questions_get(
     track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
     topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas')"),
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(10, ge=1, le=50, description="Number of questions (1 to 50)")
+    num_questions: int = Query(10, ge=1, le=50, description="Number of questions (1 to 5)")
 ):
     """Generate interview questions via GET request for simple queries."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
