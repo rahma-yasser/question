@@ -1,15 +1,14 @@
-import os
 import logging
 import json
 import re
 from typing import List, Optional
-from dotenv import load_dotenv
+from datetime import datetime
 import google.generativeai as genai
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 from fastapi import FastAPI, HTTPException, Query
 import asyncio
-from google.api_core.exceptions import GoogleAPIError
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Question Generation API",
     description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for simple queries.",
-    version="1.0.3"
+    version="1.0.1"
 )
 
 # Define tracks
@@ -31,12 +30,12 @@ TRACKS = {
     "1": {
         "name": "flutter developer",
         "default_topic": "flutter developer",
-        "tuned_model": "gemini-1.5-flash"  # Fallback to avoid InvalidArgument
+        "tuned_model": "tunedModels/fluttermodel-2cx3qf2cm72f"
     },
     "2": {
         "name": "machine learning",
         "default_topic": "machine learning",
-        "tuned_model": "gemini-1.5-flash"  # Fallback to avoid InvalidArgument
+        "tuned_model": "tunedModels/chk1-607sqy6pv5wt"
     }
 }
 
@@ -72,8 +71,7 @@ class QuestionGenerator:
 
     def setup_environment(self) -> None:
         """Load environment variables and configure Google API."""
-        load_dotenv()
-        self.google_api_key = os.getenv("GOOGLE_API_KEY")
+        self.google_api_key = "AIzaSyAAoPg5dsi3uOgzEyIL00d5lKREy3jwYrs"
         if not self.google_api_key:
             raise ValueError("GOOGLE_API_KEY environment variable is not set.")
         genai.configure(api_key=self.google_api_key)
@@ -91,22 +89,12 @@ class QuestionGenerator:
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=30, max=60))
     async def generate_content(self, prompt: str, response_type: str = "text/plain") -> str:
         """Generate content using the Gemini API with retry on rate limits."""
-        if not prompt or not isinstance(prompt, str) or len(prompt.strip()) == 0:
-            logger.error("Invalid prompt: Prompt cannot be empty or non-string.")
-            raise ValueError("Prompt cannot be empty or non-string.")
-
         try:
             response = self.question_model.generate_content(
                 prompt,
                 generation_config={"response_mime_type": response_type}
             )
-            if not response.text:
-                logger.warning("Empty response received from Gemini API.")
-                return ""
             return response.text
-        except GoogleAPIError as e:
-            logger.error(f"Google API error: {e}")
-            raise
         except Exception as e:
             logger.error(f"Content generation failed: {e}")
             raise
@@ -171,14 +159,11 @@ async def generate_questions_for_topic(
             gemini_answer = ""
             try:
                 gemini_answer_prompt = f"Provide a concise answer to the following {difficulty}-level question about {selected_topic}: {q['question']}"
-                gemini_answer = await generator.generate_content(
-                    gemini_answer_prompt,
-                    response_type="text/plain"
-                )
+                gemini_answer = await generator.generate_content(gemini_answer_prompt)
                 gemini_answer = re.sub(r'[^\x00-\x7F]+', '', re.sub(r'\s+', ' ', gemini_answer).strip())
             except Exception as e:
                 logger.error(f"Error generating Gemini answer for question '{q['question']}': {str(e)}")
-                gemini_answer = "Unable to generate answer due to API error."
+                gemini_answer = "Failed to generate Gemini answer."
 
             question_list.append(Question(
                 question=q.get("question", ""),
@@ -295,8 +280,6 @@ async def generate_questions_get(
 async def get_tracks():
     """Return available tracks."""
     return TRACKS
-
-app = app  # Export the FastAPI app for Vercel
 
 if __name__ == "__main__":
     import uvicorn

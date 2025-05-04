@@ -40,3 +40,20 @@
 2025-05-03 03:56:04,527 - INFO - Model initialized successfully.
 2025-05-03 03:57:24,902 - INFO - Environment setup completed.
 2025-05-03 03:57:24,903 - INFO - Model initialized successfully.
+2025-05-04 02:38:03,118 - INFO - Environment setup completed.
+2025-05-04 02:38:03,119 - INFO - Model initialized successfully.
+2025-05-04 02:38:04,219 - ERROR - Content generation failed: 400 * GenerateContentRequest.generation_config.response_mime_type: allowed mimetypes are `text/plain`, `application/json`, `application/xml`, `application/yaml` and `text/x.enum`.
+
+2025-05-04 02:38:34,365 - ERROR - Content generation failed: 400 * GenerateContentRequest.generation_config.response_mime_type: allowed mimetypes are `text/plain`, `application/json`, `application/xml`, `application/yaml` and `text/x.enum`.
+
+2025-05-04 02:39:04,482 - ERROR - Content generation failed: 400 * GenerateContentRequest.generation_config.response_mime_type: allowed mimetypes are `text/plain`, `application/json`, `application/xml`, `application/yaml` and `text/x.enum`.
+
+2025-05-04 02:39:34,604 - ERROR - Content generation failed: 400 * GenerateContentRequest.generation_config.response_mime_type: allowed mimetypes are `text/plain`, `application/json`, `application/xml`, `application/yaml` and `text/x.enum`.
+
+2025-05-04 02:40:04,724 - ERROR - Content generation failed: 400 * GenerateContentRequest.generation_config.response_mime_type: allowed mimetypes are `text/plain`, `application/json`, `application/xml`, `application/yaml` and `text/x.enum`.
+
+2025-05-04 02:40:04,726 - ERROR - Error generating Gemini answer for question 'What is pandas and why is it useful in data science?': RetryError[<Future at 0x2d1cfab7e30 state=finished raised InvalidArgument>]
+2025-05-04 02:40:34,860 - ERROR - Content generation failed: 400 * GenerateContentRequest.generation_config.response_mime_type: allowed mimetypes are `text/plain`, `application/json`, `application/xml`, `application/yaml` and `text/x.enum`.
+
+2025-05-04 02:41:35,177 - INFO - Environment setup completed.
+2025-05-04 02:41:35,177 - INFO - Model initialized successfully.
