@@ -1,6 +1,5 @@
-﻿fastapi==0.115.0
-mangum==0.17.0
-pydantic==2.9.2google-generative-ai==0.8.3
-tenacity==9.0.0
-python-dotenv==1.0.1  # Add this if you're using dotenv for environment variables
-uvicorn==0.30.6  # Optional, for local testing
+fastapi==0.115.0
+uvicorn==0.30.6
+pydantic==2.9.2
+google-generativeai==0.8.3
+tenacity==8.5.0
