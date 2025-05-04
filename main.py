@@ -71,7 +71,7 @@ class QuestionGenerator:
 
     def setup_environment(self) -> None:
         """Load environment variables and configure Google API."""
-        self.google_api_key = "AIzaSyAAoPg5dsi3uOgzEyIL00d5lKREy3jwYrs"
+        self.google_api_key = os.getenv("GOOGLE_API_KEY")
         if not self.google_api_key:
             raise ValueError("GOOGLE_API_KEY environment variable is not set.")
         genai.configure(api_key=self.google_api_key)
