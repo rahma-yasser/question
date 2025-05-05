@@ -94,7 +94,10 @@ class QuestionGenerator:
             async with asyncio.timeout(10):  # Timeout after 10s
                 response = self.question_model.generate_content(
                     prompt,
-                    generation_config={"response_mime_type": response_type}
+                    generation_config={
+                        "response_mime_type": response_type,
+                        "temperature": 0.8  # Add randomness to output
+                    }
                 )
                 return response.text
         except asyncio.TimeoutError:
@@ -119,11 +122,12 @@ async def generate_questions_for_topic(
 
     question_list = []
 
-    # Generate questions and answers in one API call
+    # Generate questions and answers in one API call with randomness
     try:
         question_prompt = (
             f"Generate a JSON array of {num_questions} {difficulty}-level questions about {selected_topic}, "
-            f"each with a 'question' field and a 'gemini_answer' field. "
+            f"each with a 'question' field and a 'gemini_answer' field. Ensure questions are varied and unique, "
+            f"avoiding repetition of common questions. "
             f'Example: [{{"question": "What is a key feature of {selected_topic}?", "gemini_answer": "Answer here"}}]'
         )
         response_text = await generator.generate_content(
