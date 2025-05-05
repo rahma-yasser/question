@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 # FastAPI app
 app = FastAPI(
     title="Question Generation API",
-    description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for simple or multi-topic queries.",
-    version="1.0.2"
+    description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for single or multi-topic queries.",
+    version="1.0.3"
 )
 
 # Define tracks
@@ -122,13 +122,17 @@ async def generate_questions_for_topic(
 
     question_list = []
 
-    # Generate questions and answers in one API call with randomness
+    # Generate questions and answers in one API call with updated prompt
     try:
         question_prompt = (
             f"Generate a JSON array of {num_questions} {difficulty}-level questions about {selected_topic}, "
             f"each with a 'question' field and a 'gemini_answer' field. Ensure questions are varied and unique, "
-            f"avoiding repetition of common questions. "
-            f'Example: [{{"question": "What is a key feature of {selected_topic}?", "gemini_answer": "Answer here"}}]'
+            f"avoiding repetition of common questions. For each answer: "
+            f"- Base the answer on the {difficulty} skill level. "
+            f"- Make the answer clear, concise, and {difficulty}-friendly. "
+            f"- Include a simple explanation of the concept. "
+            f"- Avoid unnecessary repetition or overly complex terms. "
+            f'Example: [{{"question": "What is a key feature of {selected_topic}?", "gemini_answer": "A simple explanation here."}}]'
         )
         response_text = await generator.generate_content(
             question_prompt,
