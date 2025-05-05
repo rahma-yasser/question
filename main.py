@@ -10,7 +10,6 @@ from fastapi import FastAPI, HTTPException, Query
 import asyncio
 import os
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -18,14 +17,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# FastAPI app
 app = FastAPI(
     title="Question Generation API",
     description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for single or multi-topic queries.",
     version="1.0.3"
 )
 
-# Define tracks
 TRACKS = {
     "1": {
         "name": "flutter developer",
@@ -39,7 +36,6 @@ TRACKS = {
     }
 }
 
-# Pydantic models for API requests and responses
 class Question(BaseModel):
     question: str
     gemini_answer: str
@@ -67,7 +63,7 @@ class QuestionGenerator:
         """Initialize the question generator."""
         self.google_api_key = None
         self.question_model = None
-        self.rate_limit_delay = 2  # Delay in seconds for free-tier (2 req/min)
+        self.rate_limit_delay = 2  
 
     def setup_environment(self) -> None:
         """Load environment variables and configure Google API."""
@@ -91,12 +87,12 @@ class QuestionGenerator:
     async def generate_content(self, prompt: str, response_type: str = "text/plain") -> str:
         """Generate content using the Gemini API with retry on rate limits."""
         try:
-            async with asyncio.timeout(10):  # Timeout after 10s
+            async with asyncio.timeout(10):  
                 response = self.question_model.generate_content(
                     prompt,
                     generation_config={
                         "response_mime_type": response_type,
-                        "temperature": 0.8  # Add randomness to output
+                        "temperature": 0.8 
                     }
                 )
                 return response.text
@@ -122,7 +118,6 @@ async def generate_questions_for_topic(
 
     question_list = []
 
-    # Generate questions and answers in one API call with updated prompt
     try:
         question_prompt = (
             f"Generate a JSON array of {num_questions} {difficulty}-level questions about {selected_topic}, "
@@ -139,7 +134,6 @@ async def generate_questions_for_topic(
             response_type="application/json"
         )
 
-        # Parse response
         try:
             questions_data = json.loads(response_text)
         except json.JSONDecodeError as e:
@@ -152,7 +146,6 @@ async def generate_questions_for_topic(
         if len(questions_data) < num_questions:
             logger.warning(f"Expected {num_questions} questions, got {len(questions_data)}")
 
-        # Process questions
         for q in questions_data:
             if not q.get("question") or not q.get("gemini_answer") or not isinstance(q.get("question"), str) or len(q["question"].strip()) == 0:
                 logger.warning(f"Skipping invalid question: {q.get('question', 'None')}")
@@ -196,7 +189,6 @@ async def generate_questions(request: GenerateQuestionsRequest):
     if not request.track_id and not request.topics:
         raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
 
-    # Initialize generator
     generator = QuestionGenerator()
     try:
         generator.setup_environment()
@@ -260,7 +252,6 @@ async def generate_questions_get(
     if not track_id and not topic:
         raise HTTPException(status_code=400, detail="Either track_id or topic must be provided.")
 
-    # Initialize generator
     generator = QuestionGenerator()
     try:
         generator.setup_environment()
@@ -269,12 +260,10 @@ async def generate_questions_get(
         logger.error(f"Failed to initialize generator: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
 
-    # Determine topic
     selected_topic = topic if topic else TRACKS.get(track_id, {}).get("default_topic")
     if not selected_topic:
         raise HTTPException(status_code=400, detail="Invalid track_id or topic.")
 
-    # Generate questions
     topic_questions = await generate_questions_for_topic(
         generator, selected_topic, track_id, difficulty, num_questions
     )
@@ -293,12 +282,10 @@ async def generate_multi_questions(
     if not track_id and not topics:
         raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
 
-    # Parse comma-separated topics
     selected_topics = [topic.strip() for topic in topics.split(",") if topic.strip()]
     if not selected_topics:
         raise HTTPException(status_code=400, detail="At least one topic must be provided.")
 
-    # Initialize generator
     generator = QuestionGenerator()
     try:
         generator.setup_environment()
@@ -307,7 +294,6 @@ async def generate_multi_questions(
         logger.error(f"Failed to initialize generator: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
 
-    # Generate questions for each topic
     topic_questions_list = []
     num_topics = len(selected_topics)
     questions_per_topic = num_questions // num_topics
