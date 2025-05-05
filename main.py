@@ -164,6 +164,19 @@ async def generate_questions_for_topic(
         logger.error(f"Error generating questions for topic '{selected_topic}': {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating questions: {str(e)}")
 
+@app.get("/")
+async def root():
+    """Return a welcome message for the root path."""
+    return {
+        "message": "Welcome to the Question Generation API",
+        "documentation": "/docs",
+        "endpoints": {
+            "GET /tracks": "List available tracks",
+            "GET /generate-questions": "Generate questions for a track or topic",
+            "POST /generate-questions": "Generate questions with custom topics"
+        }
+    }
+
 @app.post("/generate-questions", response_model=QuestionResponse)
 async def generate_questions(request: GenerateQuestionsRequest):
     """Generate interview questions based on provided parameters."""
