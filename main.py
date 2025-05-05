@@ -58,7 +58,7 @@ class GenerateQuestionsRequest(BaseModel):
     track_id: Optional[str] = Field(None, description="Track ID (e.g., '1' for Flutter, '2' for Machine Learning)")
     topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy'])")
     difficulty: str = Field("beginner", description="Difficulty level: beginner, intermediate, or advanced")
-    num_questions: int = Field(10, ge=1, le=10, description="Number of questions (1 to 10)")
+    num_questions: int = Field(3, ge=1, le=5, description="Number of questions (1 to 5)")
 
 class QuestionGenerator:
     """A system to generate questions and answers using Google Gemini API."""
@@ -73,7 +73,8 @@ class QuestionGenerator:
         """Load environment variables and configure Google API."""
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         if not self.google_api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable is not set.")
+            logger.error("GOOGLE_API_KEY environment variable is not set")
+            raise ValueError("GOOGLE_API_KEY environment variable is not set")
         genai.configure(api_key=self.google_api_key)
         logger.info("Environment setup completed.")
 
@@ -86,15 +87,19 @@ class QuestionGenerator:
             logger.error(f"Failed to initialize model: {e}")
             raise
 
-    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
     async def generate_content(self, prompt: str, response_type: str = "text/plain") -> str:
         """Generate content using the Gemini API with retry on rate limits."""
         try:
-            response = self.question_model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": response_type}
-            )
-            return response.text
+            async with asyncio.timeout(10):  # Timeout after 10s
+                response = self.question_model.generate_content(
+                    prompt,
+                    generation_config={"response_mime_type": response_type}
+                )
+                return response.text
+        except asyncio.TimeoutError:
+            logger.error("Gemini API call timed out")
+            raise HTTPException(status_code=504, detail="Gemini API request timed out")
         except Exception as e:
             logger.error(f"Content generation failed: {e}")
             raise
@@ -104,7 +109,7 @@ async def generate_questions_for_topic(
     topic: str,
     track_id: str = None,
     difficulty: str = "beginner",
-    num_questions: int = 10
+    num_questions: int = 3
 ) -> TopicQuestions:
     """Generate questions and answers for a single topic using Gemini."""
     selected_topic = topic.lower().strip()
@@ -114,22 +119,12 @@ async def generate_questions_for_topic(
 
     question_list = []
 
-    # Select answer model
-    try:
-        if track_id and track_id in TRACKS:
-            answer_model = genai.GenerativeModel(TRACKS[track_id]["tuned_model"])
-        else:
-            answer_model = genai.GenerativeModel("gemini-1.5-flash")
-    except Exception as e:
-        logger.warning(f"Failed to load track-specific model: {str(e)}. Falling back to gemini-1.5-flash.")
-        answer_model = genai.GenerativeModel("gemini-1.5-flash")
-
-    # Generate questions
+    # Generate questions and answers in one API call
     try:
         question_prompt = (
             f"Generate a JSON array of {num_questions} {difficulty}-level questions about {selected_topic}, "
-            f"each with a 'question' field. "
-            f'Example: [{{"question": "What is a key feature of {selected_topic}?"}}, ...]'
+            f"each with a 'question' field and a 'gemini_answer' field. "
+            f'Example: [{{"question": "What is a key feature of {selected_topic}?", "gemini_answer": "Answer here"}}]'
         )
         response_text = await generator.generate_content(
             question_prompt,
@@ -149,32 +144,19 @@ async def generate_questions_for_topic(
         if len(questions_data) < num_questions:
             logger.warning(f"Expected {num_questions} questions, got {len(questions_data)}")
 
-        # Generate answers
+        # Process questions
         for q in questions_data:
-            if not q.get("question") or not isinstance(q.get("question"), str) or len(q["question"].strip()) == 0:
+            if not q.get("question") or not q.get("gemini_answer") or not isinstance(q.get("question"), str) or len(q["question"].strip()) == 0:
                 logger.warning(f"Skipping invalid question: {q.get('question', 'None')}")
                 continue
 
-            # Gemini answer
-            gemini_answer = ""
-            try:
-                gemini_answer_prompt = f"Provide a concise answer to the following {difficulty}-level question about {selected_topic}: {q['question']}"
-                gemini_answer = await generator.generate_content(gemini_answer_prompt)
-                gemini_answer = re.sub(r'[^\x00-\x7F]+', '', re.sub(r'\s+', ' ', gemini_answer).strip())
-            except Exception as e:
-                logger.error(f"Error generating Gemini answer for question '{q['question']}': {str(e)}")
-                gemini_answer = "Failed to generate Gemini answer."
-
             question_list.append(Question(
                 question=q.get("question", ""),
-                gemini_answer=gemini_answer,
+                gemini_answer=re.sub(r'[^\x00-\x7F]+', '', re.sub(r'\s+', ' ', q.get("gemini_answer", "").strip())),
                 user_answer="",
                 topic=selected_topic,
                 classification=difficulty.capitalize()
             ))
-
-            # Dynamic rate limiting delay
-            await asyncio.sleep(generator.rate_limit_delay)
 
         return TopicQuestions(topic=selected_topic, questions=question_list)
 
@@ -187,8 +169,8 @@ async def generate_questions(request: GenerateQuestionsRequest):
     """Generate interview questions based on provided parameters."""
     if request.difficulty not in ["beginner", "intermediate", "advanced"]:
         raise HTTPException(status_code=400, detail="Invalid difficulty.")
-    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 100:
-        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 100.")
+    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 5:
+        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 5.")
     if not request.track_id and not request.topics:
         raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
 
@@ -248,7 +230,7 @@ async def generate_questions_get(
     track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
     topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas')"),
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(10, ge=1, le=50, description="Number of questions (1 to 5)")
+    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
 ):
     """Generate interview questions via GET request for simple queries."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
