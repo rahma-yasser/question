@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 # FastAPI app
 app = FastAPI(
     title="Question Generation API",
-    description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for simple queries.",
-    version="1.0.1"
+    description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for simple or multi-topic queries.",
+    version="1.0.2"
 )
 
 # Define tracks
@@ -176,7 +176,8 @@ async def root():
         "documentation": "/docs",
         "endpoints": {
             "GET /tracks": "List available tracks",
-            "GET /generate-questions": "Generate questions for a track or topic",
+            "GET /generate-questions": "Generate questions for a single topic",
+            "GET /generate-multi-questions": "Generate questions for multiple topics",
             "POST /generate-questions": "Generate questions with custom topics"
         }
     }
@@ -249,7 +250,7 @@ async def generate_questions_get(
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
     num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
 ):
-    """Generate interview questions via GET request for simple queries."""
+    """Generate interview questions via GET request for a single topic."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
         raise HTTPException(status_code=400, detail="Invalid difficulty.")
     if not track_id and not topic:
@@ -274,6 +275,51 @@ async def generate_questions_get(
         generator, selected_topic, track_id, difficulty, num_questions
     )
     return QuestionResponse(topics=[topic_questions])
+
+@app.get("/generate-multi-questions", response_model=QuestionResponse)
+async def generate_multi_questions(
+    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
+    topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network')"),
+    difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
+    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
+):
+    """Generate interview questions via GET request for multiple topics."""
+    if difficulty not in ["beginner", "intermediate", "advanced"]:
+        raise HTTPException(status_code=400, detail="Invalid difficulty.")
+    if not track_id and not topics:
+        raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
+
+    # Parse comma-separated topics
+    selected_topics = [topic.strip() for topic in topics.split(",") if topic.strip()]
+    if not selected_topics:
+        raise HTTPException(status_code=400, detail="At least one topic must be provided.")
+
+    # Initialize generator
+    generator = QuestionGenerator()
+    try:
+        generator.setup_environment()
+        generator.initialize_models()
+    except Exception as e:
+        logger.error(f"Failed to initialize generator: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
+
+    # Generate questions for each topic
+    topic_questions_list = []
+    num_topics = len(selected_topics)
+    questions_per_topic = num_questions // num_topics
+    extra_questions = num_questions % num_topics
+
+    for i, topic in enumerate(selected_topics):
+        topic_questions_count = questions_per_topic + (1 if i < extra_questions else 0)
+        if topic_questions_count == 0:
+            logger.warning(f"Skipping topic '{topic}' as it has 0 questions allocated.")
+            continue
+        topic_questions = await generate_questions_for_topic(
+            generator, topic, track_id, difficulty, topic_questions_count
+        )
+        topic_questions_list.append(topic_questions)
+
+    return QuestionResponse(topics=topic_questions_list)
 
 @app.get("/tracks")
 async def get_tracks():
