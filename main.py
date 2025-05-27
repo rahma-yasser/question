@@ -179,7 +179,7 @@ async def root():
         }
     }
 
-@app.post("/generate-questions", response_model=QuestionResponse)
+@app.post("/pgenerate-questions", response_model=QuestionResponse)
 async def generate_questions(request: GenerateQuestionsRequest):
     """Generate interview questions based on provided parameters."""
     if request.difficulty not in ["beginner", "intermediate", "advanced"]:
@@ -239,7 +239,7 @@ async def generate_questions(request: GenerateQuestionsRequest):
 
     return QuestionResponse(topics=topic_questions_list)
 
-@app.get("/generate-questions", response_model=QuestionResponse)
+@app.get("/ggenerate-questions", response_model=QuestionResponse)
 async def generate_questions_get(
     track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
     topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas')"),
@@ -269,7 +269,7 @@ async def generate_questions_get(
     )
     return QuestionResponse(topics=[topic_questions])
 
-@app.get("/generate-multi-questions", response_model=QuestionResponse)
+@app.get("/ggenerate-multi-questions", response_model=QuestionResponse)
 async def generate_multi_questions(
     track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
     topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network')"),
