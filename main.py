@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Question Generation API",
     description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for single or multi-topic queries.",
-    version="1.0.4"
+    version="1.0.3"
 )
 
 TRACKS = {
@@ -55,11 +55,6 @@ class GenerateQuestionsRequest(BaseModel):
     topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy'])")
     difficulty: str = Field("beginner", description="Difficulty level: beginner, intermediate, or advanced")
     num_questions: int = Field(3, ge=1, le=5, description="Number of questions (1 to 5)")
-
-class GenerateMultiQuestionsRequest(BaseModel):
-    topics: List[str] = Field(default=["machine learning", "pandas", "numpy", "scikit-learn"], description="List of topics for question generation")
-    difficulty: str = Field(default="beginner", description="Difficulty level: beginner, intermediate, or advanced")
-    num_questions: int = Field(default=4, ge=1, le=5, description="Number of questions (1 to 5)")
 
 class QuestionGenerator:
     """A system to generate questions and answers using Google Gemini API."""
@@ -179,7 +174,7 @@ async def root():
         "endpoints": {
             "GET /tracks": "List available tracks",
             "GET /generate-questions": "Generate questions for a single topic",
-            "POST /generate-multi-questions": "Generate 4 beginner-level questions for machine learning topics",
+            "GET /generate-multi-questions": "Generate questions for multiple topics",
             "POST /generate-questions": "Generate questions with custom topics"
         }
     }
@@ -274,18 +269,22 @@ async def generate_questions_get(
     )
     return QuestionResponse(topics=[topic_questions])
 
-@app.post("/generate-multi-questions", response_model=QuestionResponse)
-async def generate_multi_questions(request: GenerateMultiQuestionsRequest = GenerateMultiQuestionsRequest()):
-    """Generate 4 beginner-level interview questions for machine learning topics via POST request."""
-    track_id = "2"  # Fixed to machine learning track
-    selected_topics = request.topics
-    difficulty = request.difficulty
-    num_questions = request.num_questions
-
+@app.get("/generate-multi-questions", response_model=QuestionResponse)
+async def generate_multi_questions(
+    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
+    topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network')"),
+    difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
+    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
+):
+    """Generate interview questions via GET request for multiple topics."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
         raise HTTPException(status_code=400, detail="Invalid difficulty.")
+    if not track_id and not topics:
+        raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
+
+    selected_topics = [topic.strip() for topic in topics.split(",") if topic.strip()]
     if not selected_topics:
-        raise HTTPException(status_code=400, detail="Topics list cannot be empty.")
+        raise HTTPException(status_code=400, detail="At least one topic must be provided.")
 
     generator = QuestionGenerator()
     try:
