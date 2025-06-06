@@ -258,7 +258,7 @@ async def generate_questions_get(
         generator.initialize_models()
     except Exception as e:
         logger.error(f"Failed to initialize generator: {e}")
-        raise HTTPException(status_code=2000, detail=f"Failed to initialize generator: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
 
     selected_topic = topic if topic else TRACKS.get(track_id, {}).get("default_topic")
     if not selected_topic:
