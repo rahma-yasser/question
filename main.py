@@ -1,3 +1,4 @@
+```python
 import logging
 import json
 import re
@@ -9,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from fastapi import FastAPI, HTTPException, Query
 import asyncio
 import os
+from dotenv import load_dotenv
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Question Generation API",
     description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for single or multi-topic queries.",
-    version="1.0.3"
+    version="1.0.4"
 )
 
 TRACKS = {
@@ -77,6 +79,7 @@ class QuestionGenerator:
 
     def setup_environment(self) -> None:
         """Load environment variables and configure Google API."""
+        load_dotenv()
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         if not self.google_api_key:
             logger.error("GOOGLE_API_KEY environment variable is not set")
@@ -314,7 +317,7 @@ async def generate_questions_get(
 
     selected_topic = topic if topic else TRACKS.get(track_id, {}).get("default_topic")
     if not selected_topic:
-        raise HTTPException(status_code=400, detail="Invalid track_id or topic.")
+        raise HTTPException(status_code=400, detail=f"Invalid track_id. Choose from {', '.join(TRACKS.keys())}.")
 
     topic_questions = await generate_questions_for_topic(
         generator, selected_topic, track_id, difficulty, num_questions
@@ -371,3 +374,4 @@ async def get_tracks():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+```
