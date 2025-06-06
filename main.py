@@ -4,6 +4,7 @@ import re
 from typing import List, Optional
 from datetime import datetime
 import google.generativeai as genai
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential
 from fastapi import FastAPI, HTTPException, Query
