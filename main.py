@@ -54,7 +54,7 @@ class GenerateQuestionsRequest(BaseModel):
     track_id: Optional[str] = Field(None, description="Track ID (e.g., '1' for Flutter, '2' for Machine Learning)")
     topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy'])")
     difficulty: str = Field("beginner", description="Difficulty level: beginner, intermediate, or advanced")
-    num_questions: int = Field(3, ge=1, le=5, description="Number of questions (1 to 5)")
+    num_questions: int = Field(3, ge=1, le=20, description="Number of questions (1 to 20)")
 
 class QuestionGenerator:
     """A system to generate questions and answers using Google Gemini API."""
@@ -173,9 +173,9 @@ async def root():
         "documentation": "/docs",
         "endpoints": {
             "GET /tracks": "List available tracks",
-            "GET /generate-questions": "Generate questions for a single topic",
-            "GET /generate-multi-questions": "Generate questions for multiple topics",
-            "POST /generate-questions": "Generate questions with custom topics"
+            "GET /ggenerate-questions": "Generate questions for a single topic",
+            "GET /ggenerate-multi-questions": "Generate questions for multiple topics",
+            "POST /pgenerate-questions": "Generate questions with custom topics"
         }
     }
 
@@ -184,8 +184,8 @@ async def generate_questions(request: GenerateQuestionsRequest):
     """Generate interview questions based on provided parameters."""
     if request.difficulty not in ["beginner", "intermediate", "advanced"]:
         raise HTTPException(status_code=400, detail="Invalid difficulty.")
-    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 5:
-        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 5.")
+    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 20:
+        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 20.")
     if not request.track_id and not request.topics:
         raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
 
@@ -244,7 +244,7 @@ async def generate_questions_get(
     track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
     topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas')"),
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
+    num_questions: int = Query(3, ge=1, le=20, description="Number of questions (1 to 20)")
 ):
     """Generate interview questions via GET request for a single topic."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
@@ -274,7 +274,7 @@ async def generate_multi_questions(
     track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
     topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network')"),
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
+    num_questions: int = Query(3, ge=1, le=20, description="Number of questions (1 to 20)")
 ):
     """Generate interview questions via GET request for multiple topics."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
