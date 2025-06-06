@@ -1,4 +1,3 @@
-incerss the number of question to max 20
 import logging
 import json
 import re
