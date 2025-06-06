@@ -20,19 +20,25 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Question Generation API",
     description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for single or multi-topic queries.",
-    version="1.0.3"
+    version="1.0.4"
 )
 
 TRACKS = {
     "1": {
         "name": "flutter developer",
-        "default_topic": "flutter developer",
-        "tuned_model": "tunedModels/fluttermodel-2cx3qf2cm72f"
+        "default_topic": "flutter developer"
     },
     "2": {
         "name": "machine learning",
-        "default_topic": "machine learning",
-        "tuned_model": "tunedModels/chk1-607sqy6pv5wt"
+        "default_topic": "machine learning"
+    },
+    "3": {
+        "name": "backend dotnet",
+        "default_topic": ".NET backend"
+    },
+    "4": {
+        "name": "frontend",
+        "default_topic": "frontend development"
     }
 }
 
@@ -51,10 +57,10 @@ class QuestionResponse(BaseModel):
     topics: List[TopicQuestions]
 
 class GenerateQuestionsRequest(BaseModel):
-    track_id: Optional[str] = Field(None, description="Track ID (e.g., '1' for Flutter, '2' for Machine Learning)")
-    topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy'])")
+    track_id: Optional[str] = Field(None, description="Track ID (e.g., '1' for Flutter, '2' for Machine Learning, '3' for .NET Backend, '4' for Frontend)")
+    topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy', 'ASP.NET', 'React'])")
     difficulty: str = Field("beginner", description="Difficulty level: beginner, intermediate, or advanced")
-    num_questions: int = Field(3, ge=1, le=5, description="Number of questions (1 to 5)")
+    num_questions: int = Field(3, ge=1, le=20, description="Number of questions (1 to 20)")
 
 class QuestionGenerator:
     """A system to generate questions and answers using Google Gemini API."""
@@ -179,13 +185,13 @@ async def root():
         }
     }
 
-@app.post("/pgenerate-questions", response_model=QuestionResponse)
+@app.post("/generate-questions", response_model=QuestionResponse)
 async def generate_questions(request: GenerateQuestionsRequest):
     """Generate interview questions based on provided parameters."""
     if request.difficulty not in ["beginner", "intermediate", "advanced"]:
         raise HTTPException(status_code=400, detail="Invalid difficulty.")
-    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 5:
-        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 5.")
+    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 20:
+        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 20.")
     if not request.track_id and not request.topics:
         raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
 
@@ -201,10 +207,7 @@ async def generate_questions(request: GenerateQuestionsRequest):
     if request.track_id:
         if request.track_id not in TRACKS:
             raise HTTPException(status_code=400, detail=f"Invalid track_id. Choose from {', '.join(TRACKS.keys())}.")
-        if request.track_id == "2" and request.topics:
-            selected_topics = request.topics
-        else:
-            selected_topics = [TRACKS[request.track_id]["default_topic"]]
+        selected_topics = request.topics if request.topics else [TRACKS[request.track_id]["default_topic"]]
 
         num_topics = len(selected_topics)
         questions_per_topic = request.num_questions // num_topics
@@ -239,12 +242,12 @@ async def generate_questions(request: GenerateQuestionsRequest):
 
     return QuestionResponse(topics=topic_questions_list)
 
-@app.get("/ggenerate-questions", response_model=QuestionResponse)
+@app.get("/generate-questions", response_model=QuestionResponse)
 async def generate_questions_get(
-    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
-    topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas')"),
+    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML, '3' for .NET Backend, '4' for Frontend)"),
+    topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas', 'ASP.NET', 'React')"),
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
+    num_questions: int = Query(3, ge=1, le=20, description="Number of questions (1 to 20)")
 ):
     """Generate interview questions via GET request for a single topic."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
@@ -269,12 +272,12 @@ async def generate_questions_get(
     )
     return QuestionResponse(topics=[topic_questions])
 
-@app.get("/ggenerate-multi-questions", response_model=QuestionResponse)
+@app.get("/generate-multi-questions", response_model=QuestionResponse)
 async def generate_multi_questions(
-    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
-    topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network')"),
+    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML, '3' for .NET Backend, '4' for Frontend)"),
+    topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network,ASP.NET,React')"),
     difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(3, ge=1, le=5, description="Number of questions (1 to 5)")
+    num_questions: int = Query(3, ge=1, le=20, description="Number of questions (1 to 20)")
 ):
     """Generate interview questions via GET request for multiple topics."""
     if difficulty not in ["beginner", "intermediate", "advanced"]:
