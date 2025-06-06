@@ -32,7 +32,7 @@ TRACKS = {
     "2": {
         "name": "machine learning",
         "default_topic": "machine learning",
-        "tuned_model": "tunedModels/chk1-607sqy6pv20wt"
+        "tuned_model": "tunedModels/chk1-607sqy6pv5wt"
     }
 }
 
@@ -77,7 +77,7 @@ class QuestionGenerator:
     def initialize_models(self) -> None:
         """Initialize the question model."""
         try:
-            self.question_model = genai.GenerativeModel("gemini-1.20-flash")
+            self.question_model = genai.GenerativeModel("gemini-1.5-flash")
             logger.info("Model initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize model: {e}")
@@ -98,7 +98,7 @@ class QuestionGenerator:
                 return response.text
         except asyncio.TimeoutError:
             logger.error("Gemini API call timed out")
-            raise HTTPException(status_code=2004, detail="Gemini API request timed out")
+            raise HTTPException(status_code=504, detail="Gemini API request timed out")
         except Exception as e:
             logger.error(f"Content generation failed: {e}")
             raise
@@ -138,11 +138,11 @@ async def generate_questions_for_topic(
             questions_data = json.loads(response_text)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse API response as JSON: {str(e)}")
-            raise HTTPException(status_code=2000, detail="Failed to parse API response as JSON")
+            raise HTTPException(status_code=500, detail="Failed to parse API response as JSON")
 
         if not isinstance(questions_data, list):
             logger.error(f"API response is not a list of questions")
-            raise HTTPException(status_code=2000, detail="API response is not a list of questions")
+            raise HTTPException(status_code=500, detail="API response is not a list of questions")
         if len(questions_data) < num_questions:
             logger.warning(f"Expected {num_questions} questions, got {len(questions_data)}")
 
@@ -163,7 +163,7 @@ async def generate_questions_for_topic(
 
     except Exception as e:
         logger.error(f"Error generating questions for topic '{selected_topic}': {str(e)}")
-        raise HTTPException(status_code=2000, detail=f"Error generating questions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating questions: {str(e)}")
 
 @app.get("/")
 async def root():
@@ -195,7 +195,7 @@ async def generate_questions(request: GenerateQuestionsRequest):
         generator.initialize_models()
     except Exception as e:
         logger.error(f"Failed to initialize generator: {e}")
-        raise HTTPException(status_code=2000, detail=f"Failed to initialize generator: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
 
     topic_questions_list = []
     if request.track_id:
@@ -292,7 +292,7 @@ async def generate_multi_questions(
         generator.initialize_models()
     except Exception as e:
         logger.error(f"Failed to initialize generator: {e}")
-        raise HTTPException(status_code=2000, detail=f"Failed to initialize generator: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
 
     topic_questions_list = []
     num_topics = len(selected_topics)
