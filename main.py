@@ -11,7 +11,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from fastapi import FastAPI, HTTPException, Query
 import asyncio
 import os
-from dotenv import load_dotenv
 
 # Logging configuration with request ID support
 logging.basicConfig(
