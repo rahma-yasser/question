@@ -185,7 +185,8 @@ async def root():
             "GET /tracks": "List available tracks",
             "GET /generate-questions": "Generate questions for a single topic",
             "GET /generate-multi-questions": "Generate questions for multiple topics",
-            "POST /generate-questions": "Generate questions with custom topics"
+            "POST /generate-questions": "Generate questions with custom topics",
+            "POST /generate-multi-questions": "Generate questions for multiple topics"
         }
     }
 
@@ -246,6 +247,47 @@ async def generate_questions(request: GenerateQuestionsRequest):
                 generator, topic, None, request.difficulty, topic_questions_count
             )
             topic_questions_list.append(topic_questions)
+
+    return QuestionResponse(topics=topic_questions_list)
+
+@app.post("/pgenerate-multi-questions", response_model=QuestionResponse)
+async def generate_multi_questions(request: GenerateQuestionsRequest):
+    """Generate interview questions for multiple topics via POST request."""
+    if request.difficulty not in ["beginner", "intermediate", "advanced"]:
+        raise HTTPException(status_code=400, detail="Invalid difficulty.")
+    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 20:
+        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 20.")
+    if not request.track_id and not request.topics:
+        raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
+    if not request.topics:
+        raise HTTPException(status_code=400, detail="Topics list must be provided for multi-topic generation.")
+
+    generator = QuestionGenerator()
+    try:
+        generator.setup_environment()
+        generator.initialize_models()
+    except Exception as e:
+        logger.error(f"Failed to initialize generator: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
+
+    selected_topics = request.topics
+    if not selected_topics:
+        raise HTTPException(status_code=400, detail="At least one topic must be provided.")
+
+    topic_questions_list = []
+    num_topics = len(selected_topics)
+    questions_per_topic = request.num_questions // num_topics
+    extra_questions = request.num_questions % num_topics
+
+    for i, topic in enumerate(selected_topics):
+        topic_questions_count = questions_per_topic + (1 if i < extra_questions else 0)
+        if topic_questions_count == 0:
+            logger.warning(f"Skipping topic '{topic}' as it has 0 questions allocated.")
+            continue
+        topic_questions = await generate_questions_for_topic(
+            generator, topic, request.track_id, request.difficulty, topic_questions_count
+        )
+        topic_questions_list.append(topic_questions)
 
     return QuestionResponse(topics=topic_questions_list)
 
