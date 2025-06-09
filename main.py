@@ -1,321 +1,217 @@
-import logging
 import json
 import re
-from typing import List, Optional
-from datetime import datetime
-import google.generativeai as genai
-from pydantic import BaseModel, Field
-from tenacity import retry, stop_after_attempt, wait_exponential
-from fastapi import FastAPI, HTTPException, Query
-import asyncio
 import os
+import asyncio
+import pandas as pd
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+import typing_extensions as typing
+# import google as genai  # Fallback import
+from google import genai
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("app.log"), logging.StreamHandler()]
-)
+import uvicorn
+import logging
+
+# Configure logging for Heroku debugging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="Question Generation API",
-    description="API for generating interview questions and answers using Gemini models. Supports POST for detailed requests and GET for single or multi-topic queries.",
-    version="1.0.3"
-)
+covered_soft_skills = [
+    "Communication", "Teamwork", "Conflict Resolution",
+    "Time Management", "Adaptability", "Leadership",
+    "Problem Solving", "Emotional Intelligence"
+]
+KEY = "AIzaSyAoEnHcllqAerkW7yxfUlUYcAlZRgoOwOg"
+# Configure Gemini API client
+# try:
+    # genai.configure(api_key=KEY)
+    # global client# = genai.Client(api_key=KEY)
+client = genai.Client(api_key=KEY)
 
-TRACKS = {
-    "1": {
-        "name": "flutter developer",
-        "default_topic": "flutter developer",
-        "tuned_model": "tunedModels/fluttermodel-2cx3qf2cm72f"
-    },
-    "2": {
-        "name": "machine learning",
-        "default_topic": "machine learning",
-        "tuned_model": "tunedModels/chk1-607sqy6pv5wt"
-    }
-}
+    # logger.info("Google Gemini API configured successfully")
+# except Exception as e:
+    # logger.error(f"Failed to configure Gemini API: {e}")
 
-class Question(BaseModel):
-    question: str
-    gemini_answer: str
-    user_answer: str
-    topic: str
-    classification: str
+class SkillBreakdown(BaseModel):
+    clarity: int
+    example_quality: int
+    structure: int
+    outcome: int
 
-class TopicQuestions(BaseModel):
-    topic: str
-    questions: List[Question]
+class EvaluationInfo(BaseModel):
+    score: int
+    skill_breakdown: SkillBreakdown
+    strengths: typing.List[str]
+    weaknesses: typing.List[str]
+    feedback: str
 
-class QuestionResponse(BaseModel):
-    topics: List[TopicQuestions]
-
-class GenerateQuestionsRequest(BaseModel):
-    track_id: Optional[str] = Field(None, description="Track ID (e.g., '1' for Flutter, '2' for Machine Learning)")
-    topics: Optional[List[str]] = Field(None, description="List of custom topics (e.g., ['pandas', 'numpy'])")
-    difficulty: str = Field("beginner", description="Difficulty level: beginner, intermediate, or advanced")
-    num_questions: int = Field(3, ge=1, le=20, description="Number of questions (1 to 20)")
-
-class QuestionGenerator:
-    """A system to generate questions and answers using Google Gemini API."""
-    
-    def __init__(self):
-        """Initialize the question generator."""
-        self.google_api_key = None
-        self.question_model = None
-        self.rate_limit_delay = 2  
-
-    def setup_environment(self) -> None:
-        """Configure Google API with hardcoded API key."""
-        self.google_api_key = "AIzaSyAAoPg5dsi3uOgzEyIL00d5lKREy3jwYrs"
-        if not self.google_api_key:
-            logger.error("GOOGLE_API_KEY is not set")
-            raise ValueError("GOOGLE_API_KEY is not set")
-        genai.configure(api_key=self.google_api_key)
-        logger.info("Environment setup completed.")
-
-    def initialize_models(self) -> None:
-        """Initialize the question model."""
-        try:
-            self.question_model = genai.GenerativeModel("gemini-1.5-flash")
-            logger.info("Model initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize model: {e}")
-            raise
-
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
-    async def generate_content(self, prompt: str, response_type: str = "text/plain") -> str:
-        """Generate content using the Gemini API with retry on rate limits."""
-        try:
-            async with asyncio.timeout(10):  
-                response = self.question_model.generate_content(
-                    prompt,
-                    generation_config={
-                        "response_mime_type": response_type,
-                        "temperature": 0.8 
-                    }
-                )
-                return response.text
-        except asyncio.TimeoutError:
-            logger.error("Gemini API call timed out")
-            raise HTTPException(status_code=504, detail="Gemini API request timed out")
-        except Exception as e:
-            logger.error(f"Content generation failed: {e}")
-            raise
-
-async def generate_questions_for_topic(
-    generator: QuestionGenerator,
-    topic: str,
-    track_id: str = None,
-    difficulty: str = "beginner",
-    num_questions: int = 3
-) -> TopicQuestions:
-    """Generate questions and answers for a single topic using Gemini."""
-    selected_topic = topic.lower().strip()
-    if not selected_topic:
-        logger.error("Topic cannot be empty.")
-        raise HTTPException(status_code=400, detail="Topic cannot be empty.")
-
-    question_list = []
-
+def parse_response(text):
+    """Robust JSON parsing with error handling"""
     try:
-        question_prompt = (
-            f"Generate a JSON array of {num_questions} {difficulty}-level questions about {selected_topic}, "
-            f"each with a 'question' field and a 'gemini_answer' field. Ensure questions are varied and unique, "
-            f"avoiding repetition of common questions. For each answer: "
-            f"- Base the answer on the {difficulty} skill level. "
-            f"- Make the answer clear, concise, and {difficulty}-friendly. "
-            f"- Include a simple explanation of the concept. "
-            f"- Avoid unnecessary repetition or overly complex terms. "
-            f'Example: [{{"question": "What is a key feature of {selected_topic}?", "gemini_answer": "A simple explanation here."}}]'
-        )
-        response_text = await generator.generate_content(
-            question_prompt,
-            response_type="application/json"
-        )
+        cleaned = re.sub(r'[\x00-\x1F]|```json|```', '', text)
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON: {text[:200]}... Error: {e}")
+        return {"error": "Evaluation failed"}
 
-        try:
-            questions_data = json.loads(response_text)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse API response as JSON: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to parse API response as JSON")
+def evaluate_response(question, answer, target_skill):
+    """Returns JSON-formatted string of user's evaluation"""
+    prompte = f"""
+    You are a soft skills interviewer evaluating a user's response.
 
-        if not isinstance(questions_data, list):
-            logger.error(f"API response is not a list of questions")
-            raise HTTPException(status_code=500, detail="API response is not a list of questions")
-        if len(questions_data) < num_questions:
-            logger.warning(f"Expected {num_questions} questions, got {len(questions_data)}")
+    Your role is to assess how reasonably and relevantly the response reflects the skill: **{target_skill}**.
 
-        for q in questions_data:
-            if not q.get("question") or not q.get("gemini_answer") or not isinstance(q.get("question"), str) or len(q["question"].strip()) == 0:
-                logger.warning(f"Skipping invalid question: {q.get('question', 'None')}")
-                continue
+    Use the schema provided to guide your evaluation. Each requirement must be completed.
 
-            question_list.append(Question(
-                question=q.get("question", ""),
-                gemini_answer=re.sub(r'[^\x00-\x7F]+', '', re.sub(r'\s+', ' ', q.get("gemini_answer", "").strip())),
-                user_answer="",
-                topic=selected_topic,
-                classification=difficulty.capitalize()
-            ))
+    - Keep your tone supportive, understanding, and concise.
+    - Focus more on how well the response reflects an **attempt** to demonstrate the skill, rather than perfection.
+    - If the response is unrelated or completely off-topic, give a lower evaluation.
+    - Do not leave any field empty.
+    - All numeric scores must be between 0 and 10, based on overall effort, clarity, and relevance.
 
-        return TopicQuestions(topic=selected_topic, questions=question_list)
+    Question: {question}
 
+    Response: {answer}
+    """
+    try:
+        # response = genai.GenerativeModel("gemini-2.0-flash").generate_content(
+        #     contents=[prompt],
+        #     generation_config={"response_mime_type": "application/json", "response_schema": EvaluationInfo}
+        # )
+        response=client.models.generate_content(model="gemini-2.0-flash",contents=[prompte], config={"response_mime_type": "application/json","response_schema":EvaluationInfo })
+
+        logger.info("Successfully generated evaluation response")
+        return response.text
     except Exception as e:
-        logger.error(f"Error generating questions for topic '{selected_topic}': {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error generating questions: {str(e)}")
+        logger.error(f"Error in Gemini API call: {e}")
+        return json.dumps({"error": f"Evaluation failed due to API error: {str(e)}"})
+
+app = FastAPI()
 
 @app.get("/")
 async def root():
-    """Return a welcome message for the root path."""
-    return {
-        "message": "Welcome to the Question Generation API",
-        "documentation": "/docs",
-        "endpoints": {
-            "GET /tracks": "List available tracks",
-            "GET /ggenerate-questions": "Generate questions for a single topic",
-            "GET /ggenerate-multi-questions": "Generate questions for multiple topics",
-            "POST /pgenerate-questions": "Generate questions with custom topics"
-        }
-    }
+    return {"message": "This is the home page. Use /soft/{num_q} for WebSocket interview."}
 
-@app.post("/pgenerate-questions", response_model=QuestionResponse)
-async def generate_questions(request: GenerateQuestionsRequest):
-    """Generate interview questions based on provided parameters."""
-    if request.difficulty not in ["beginner", "intermediate", "advanced"]:
-        raise HTTPException(status_code=400, detail="Invalid difficulty.")
-    if not isinstance(request.num_questions, int) or request.num_questions < 1 or request.num_questions > 20:
-        raise HTTPException(status_code=400, detail="Number of questions must be an integer between 1 and 20.")
-    if not request.track_id and not request.topics:
-        raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
-
-    generator = QuestionGenerator()
+@app.get("/favicon.ico")
+async def favicon():
+    favicon_path = "favicon.ico"
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    raise HTTPException(status_code=404, detail="Favicon not found")
+#################################################################################################################################################
+@app.websocket("/soft/{num_q}")
+async def soft(num_q: int, websocket: WebSocket):
+    await websocket.accept()
+    evaluation = []
+    questions = []
+    answer = ""
     try:
-        generator.setup_environment()
-        generator.initialize_models()
+        # interviewer = genai.GenerativeModel("gemini-2.0-flash")
+        interviewer = client.chats.create(model="gemini-2.0-flash")
+
+        logger.info("Initialized Gemini model for interview")
     except Exception as e:
-        logger.error(f"Failed to initialize generator: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
+        logger.error(f"Failed to initialize Gemini model: {e}")
+        await websocket.send_json({"error": f"Failed to initialize interviewer: {str(e)}"})
+        await websocket.close()
+        return
 
-    topic_questions_list = []
-    if request.track_id:
-        if request.track_id not in TRACKS:
-            raise HTTPException(status_code=400, detail=f"Invalid track_id. Choose from {', '.join(TRACKS.keys())}.")
-        if request.track_id == "2" and request.topics:
-            selected_topics = request.topics
-        else:
-            selected_topics = [TRACKS[request.track_id]["default_topic"]]
-
-        num_topics = len(selected_topics)
-        questions_per_topic = request.num_questions // num_topics
-        extra_questions = request.num_questions % num_topics
-
-        for i, topic in enumerate(selected_topics):
-            topic_questions_count = questions_per_topic + (1 if i < extra_questions else 0)
-            if topic_questions_count == 0:
-                logger.warning(f"Skipping topic '{topic}' as it has 0 questions allocated.")
-                continue
-            topic_questions = await generate_questions_for_topic(
-                generator, topic, request.track_id, request.difficulty, topic_questions_count
-            )
-            topic_questions_list.append(topic_questions)
-
-    else:
-        if not request.topics:
-            raise HTTPException(status_code=400, detail="Topics list cannot be empty when track_id is not provided.")
-        num_topics = len(request.topics)
-        questions_per_topic = request.num_questions // num_topics
-        extra_questions = request.num_questions % num_topics
-
-        for i, topic in enumerate(request.topics):
-            topic_questions_count = questions_per_topic + (1 if i < extra_questions else 0)
-            if topic_questions_count == 0:
-                logger.warning(f"Skipping topic '{topic}' as it has 0 questions allocated.")
-                continue
-            topic_questions = await generate_questions_for_topic(
-                generator, topic, None, request.difficulty, topic_questions_count
-            )
-            topic_questions_list.append(topic_questions)
-
-    return QuestionResponse(topics=topic_questions_list)
-
-@app.get("/ggenerate-questions", response_model=QuestionResponse)
-async def generate_questions_get(
-    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
-    topic: Optional[str] = Query(None, description="Single topic (e.g., 'flutter', 'pandas')"),
-    difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(3, ge=1, le=20, description="Number of questions (1 to 20)")
-):
-    """Generate interview questions via GET request for a single topic."""
-    if difficulty not in ["beginner", "intermediate", "advanced"]:
-        raise HTTPException(status_code=400, detail="Invalid difficulty.")
-    if not track_id and not topic:
-        raise HTTPException(status_code=400, detail="Either track_id or topic must be provided.")
-
-    generator = QuestionGenerator()
-    try:
-        generator.setup_environment()
-        generator.initialize_models()
-    except Exception as e:
-        logger.error(f"Failed to initialize generator: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
-
-    selected_topic = topic if topic else TRACKS.get(track_id, {}).get("default_topic")
-    if not selected_topic:
-        raise HTTPException(status_code=400, detail="Invalid track_id or topic.")
-
-    topic_questions = await generate_questions_for_topic(
-        generator, selected_topic, track_id, difficulty, num_questions
-    )
-    return QuestionResponse(topics=[topic_questions])
-
-@app.get("/ggenerate-multi-questions", response_model=QuestionResponse)
-async def generate_multi_questions(
-    track_id: Optional[str] = Query(None, description="Track ID (e.g., '1' for Flutter, '2' for ML)"),
-    topics: str = Query(..., description="Comma-separated list of topics (e.g., 'pandas,neural network')"),
-    difficulty: str = Query("beginner", description="Difficulty: beginner, intermediate, advanced"),
-    num_questions: int = Query(3, ge=1, le=20, description="Number of questions (1 to 20)")
-):
-    """Generate interview questions via GET request for multiple topics."""
-    if difficulty not in ["beginner", "intermediate", "advanced"]:
-        raise HTTPException(status_code=400, detail="Invalid difficulty.")
-    if not track_id and not topics:
-        raise HTTPException(status_code=400, detail="Either track_id or topics must be provided.")
-
-    selected_topics = [topic.strip() for topic in topics.split(",") if topic.strip()]
-    if not selected_topics:
-        raise HTTPException(status_code=400, detail="At least one topic must be provided.")
-
-    generator = QuestionGenerator()
-    try:
-        generator.setup_environment()
-        generator.initialize_models()
-    except Exception as e:
-        logger.error(f"Failed to initialize generator: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to initialize generator: {str(e)}")
-
-    topic_questions_list = []
-    num_topics = len(selected_topics)
-    questions_per_topic = num_questions // num_topics
-    extra_questions = num_questions % num_topics
-
-    for i, topic in enumerate(selected_topics):
-        topic_questions_count = questions_per_topic + (1 if i < extra_questions else 0)
-        if topic_questions_count == 0:
-            logger.warning(f"Skipping topic '{topic}' as it has 0 questions allocated.")
-            continue
-        topic_questions = await generate_questions_for_topic(
-            generator, topic, track_id, difficulty, topic_questions_count
+    prompt = (
+            "You are soft skills interviewer asking related questions to user answers"
+            "make it like real life soft skills interview conversation"
+            "The question should be based on the previous user answer. "
+            f"Here are the soft skills you should ask about: {', '.join(covered_soft_skills)}. note you it is okay to ask from them randomly depending on the user previous answer"
+            "Avoid asking about the same soft skill again. "
+            "Return the result in JSON format as {question: str ,target_skill: str}."
+            "Now you should start with just the question avoid adding any other text"
         )
-        topic_questions_list.append(topic_questions)
 
-    return QuestionResponse(topics=topic_questions_list)
+    async def keep_alive():
+        try:
+            while True:
+                await websocket.send_json({"type": "ping"})
+                logger.info("Ping sent")
+                await asyncio.sleep(20)
+        except Exception as e:
+            logger.info(f"Keep-alive stopped: {e}")
 
-@app.get("/tracks")
-async def get_tracks():
-    """Return available tracks."""
-    return TRACKS
+    ping_task = asyncio.create_task(keep_alive())
+
+    try:
+        for i in range(num_q):
+            logger.info(f"Generating question {i+1}/{num_q}")
+            if not questions:
+                # response = interviewer.generate_content(prompt)
+                response = interviewer.send_message(prompt)
+
+            else:
+                # response = interviewer.generate_content(questions[-1]["question"] + "\nUser Answer: " + answer)
+                response = interviewer.send_message(answer)
+
+            
+            interviewer_question_parsed = parse_response(response.text)
+            print(interviewer_question_parsed,"\n\n ")
+            if "error" in interviewer_question_parsed:
+                logger.error("Failed to generate question")
+                await websocket.send_json({"error": "Failed to generate question","text":interviewer_question_parsed})
+                break
+
+            questions.append(interviewer_question_parsed)
+            await websocket.send_json(interviewer_question_parsed)
+            logger.info(f"Sent question: {interviewer_question_parsed['question']}")
+
+            try:
+                recev = await websocket.receive_json()
+                answer = recev.get("text", "")
+                logger.info(f"Received answer: {answer[:50]}...")
+            except WebSocketDisconnect:
+                logger.warning("WebSocket disconnected")
+                break
+            except Exception as e:
+                logger.error(f"Error receiving WebSocket data: {e}")
+                await websocket.send_json({"error": f"Failed to receive answer: {str(e)}"})
+                break
+
+            evaluation_result = evaluate_response(
+                interviewer_question_parsed["question"],
+                answer,
+                interviewer_question_parsed["target_skill"]
+            )
+            parsed_evaluation = json.loads(evaluation_result)
+            evaluation.append(parsed_evaluation)
+            await websocket.send_json(parsed_evaluation)
+            logger.info("Sent evaluation result")
+        # print(evaluation)
+        if evaluation:
+            df = pd.json_normalize(evaluation)
+            avgs = df.select_dtypes(include='number').mean().to_json(indent=4)
+            # avgs=str({"avgs":avgs})
+            # print(avgs,"#"*40)
+            avgs_json = {"avgs": json.loads(avgs)}  # Ensure 'avgs' is parsed JSON, not a string
+            print(json.dumps(avgs_json, indent=4), "#"*40)
+            await websocket.send_json(avgs_json)
+
+            # await websocket.send_json(json.loads(avgs))
+            # await websocket.send_json(avgs)
+            logger.info("Sent average scores")
+        else:
+            await websocket.send_json({"error": "No evaluations to average"})
+            logger.warning("No evaluations to average")
+
+    except Exception as e:
+        logger.error(f"Error in WebSocket loop: {e}")
+        await websocket.send_json({"error": f"Interview terminated due to error: {str(e)}"})
+    finally:
+        ping_task.cancel()
+        try:
+            await ping_task
+        except asyncio.CancelledError:
+            pass
+        await websocket.close()
+        logger.info("WebSocket connection closed")
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    logger.info(f"Starting Uvicorn on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
